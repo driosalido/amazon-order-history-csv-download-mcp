@@ -72,6 +72,25 @@ export function parseMoney(formatted: string, defaultCurrency = "USD"): Money {
     }
   }
 
+  // Trailing currency symbol (es, de, fr, it, nl, be): "11,56 €", "1.234,56 €".
+  // Must be stripped before the decimal-separator heuristic below, which
+  // inspects the length of the fragment after the comma.
+  if (amountStr === workingStr) {
+    const trailingPatterns: [RegExp, string][] = [
+      [/[\s  ]*€$/, "EUR"],
+      [/[\s  ]*£$/, "GBP"],
+      [/[\s  ]*\$$/, "USD"],
+    ];
+
+    for (const [pattern, curr] of trailingPatterns) {
+      if (pattern.test(amountStr)) {
+        currency = curr;
+        amountStr = amountStr.replace(pattern, "");
+        break;
+      }
+    }
+  }
+
   // Handle negative amounts (check both initial sign and remaining text)
   const isNegative =
     startsWithNegative || amountStr.includes("-") || amountStr.startsWith("(");

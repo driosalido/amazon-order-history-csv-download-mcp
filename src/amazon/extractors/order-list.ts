@@ -7,7 +7,7 @@ import { Page } from "playwright";
 import { appendFileSync } from "fs";
 import { OrderHeader, OrderStatus } from "../../core/types/order";
 import { parseMoney } from "../../core/types/money";
-import { parseDate } from "../../core/utils/date";
+import { parseDate, getMonthNamesPattern } from "../../core/utils/date";
 import {
   getTextByXPaths,
   firstMatchingStrategy,
@@ -167,49 +167,41 @@ async function extractOrderId(
 /**
  * Extract order date from an order card element.
  * Uses pre-fetched text content to avoid multiple slow calls.
- * Supports both US format (Month DD, YYYY) and UK format (DD Month YYYY).
+ *
+ * Locale-agnostic: month names come from every supported locale, not just
+ * English, because Amazon renders the order list in the account's display
+ * language (and can serve different languages between requests). Every pattern
+ * requires a 4-digit year, which is what separates the order date from the
+ * delivery status ("Entregado el 20 de agosto" carries no year).
  */
-async function extractOrderDate(allText: string): Promise<Date | null> {
-  // Month names pattern (for matching)
-  const monthsPattern =
-    "January|February|March|April|May|June|July|August|September|October|November|December";
+export async function extractOrderDate(allText: string): Promise<Date | null> {
+  const monthsPattern = getMonthNamesPattern();
 
-  // Pattern 1: US format after "Order placed" - "October 14, 2024"
-  const usAfterPlaced = allText.match(
+  // Romance format: "21 de junio de 2026" (es), "21 de junho de 2026" (pt)
+  const romanceFormat = allText.match(
     new RegExp(
-      `(?:Order placed|ORDER PLACED)\\s*\\n?\\s*((${monthsPattern})\\s+\\d{1,2},?\\s+\\d{4})`,
+      `(\\d{1,2}\\s+de\\s+(?:${monthsPattern})\\s+de\\s+\\d{4})`,
       "i",
     ),
   );
-  if (usAfterPlaced) {
-    return parseDate(usAfterPlaced[1]);
+  if (romanceFormat) {
+    return parseDate(romanceFormat[1]);
   }
 
-  // Pattern 2: UK format after "Order placed" - "14 October 2024"
-  const ukAfterPlaced = allText.match(
-    new RegExp(
-      `(?:Order placed|ORDER PLACED)\\s*\\n?\\s*(\\d{1,2}\\s+(${monthsPattern})\\s+\\d{4})`,
-      "i",
-    ),
+  // European format: "14 October 2024" (uk), "3. Januar 2025" (de)
+  const europeanFormat = allText.match(
+    new RegExp(`(\\d{1,2}\\.?\\s+(?:${monthsPattern})\\s+\\d{4})`, "i"),
   );
-  if (ukAfterPlaced) {
-    return parseDate(ukAfterPlaced[1]);
+  if (europeanFormat) {
+    return parseDate(europeanFormat[1]);
   }
 
-  // Pattern 3: UK format anywhere - "14 November 2024"
-  const ukAnywhere = allText.match(
-    new RegExp(`(\\d{1,2}\\s+(${monthsPattern})\\s+\\d{4})`, "i"),
+  // US format: "October 14, 2024"
+  const usFormat = allText.match(
+    new RegExp(`((?:${monthsPattern})\\s+\\d{1,2},?\\s+\\d{4})`, "i"),
   );
-  if (ukAnywhere) {
-    return parseDate(ukAnywhere[1]);
-  }
-
-  // Pattern 4: US format anywhere - "November 14, 2024"
-  const usAnywhere = allText.match(
-    new RegExp(`((${monthsPattern})\\s+\\d{1,2},?\\s+\\d{4})`, "i"),
-  );
-  if (usAnywhere) {
-    return parseDate(usAnywhere[1]);
+  if (usFormat) {
+    return parseDate(usFormat[1]);
   }
 
   return null;
@@ -219,11 +211,11 @@ async function extractOrderDate(allText: string): Promise<Date | null> {
  * Extract order total from an order card element.
  * Uses pre-fetched text content to avoid multiple slow calls.
  */
-function extractOrderTotal(
+export function extractOrderTotal(
   allText: string,
   currency: string,
 ): ReturnType<typeof parseMoney> {
-  // Look for total after "Total" or "TOTAL"
+  // Look for total after "Total" or "TOTAL" - symbol before the amount (en)
   const totalMatch = allText.match(
     /(?:Total|TOTAL)\s*\n?\s*([$£€][\d,]+\.\d{2})/i,
   );
@@ -231,10 +223,20 @@ function extractOrderTotal(
     return parseMoney(totalMatch[1], currency);
   }
 
-  // Fallback: look for any price pattern
-  const anyPriceMatch = allText.match(/([$£€][\d,]+\.\d{2})/);
+  // Same, with the symbol after the amount (es, de, fr, it, nl): "13,99 €"
+  const trailingTotalMatch = allText.match(
+    /(?:Total|TOTAL)\s*\n?\s*([\d.,]+[\s  ]*[$£€])/i,
+  );
+  if (trailingTotalMatch) {
+    return parseMoney(trailingTotalMatch[1], currency);
+  }
+
+  // Fallback: look for any price pattern, either symbol position
+  const anyPriceMatch = allText.match(
+    /([$£€][\d,]+\.\d{2})|([\d.,]+[\s  ]*[$£€])/,
+  );
   if (anyPriceMatch) {
-    return parseMoney(anyPriceMatch[1], currency);
+    return parseMoney(anyPriceMatch[0], currency);
   }
 
   return parseMoney("", currency);

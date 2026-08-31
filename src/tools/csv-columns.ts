@@ -8,6 +8,7 @@ import { Item } from "../core/types/item";
 import { Shipment, DeliveryStatus } from "../core/types/shipment";
 import { Transaction } from "../core/types/transaction";
 import { Money } from "../core/types/money";
+import { dateToIsoString } from "../core/utils/date";
 
 /**
  * Order data for CSV export (simplified interface to avoid complex type intersections).
@@ -81,7 +82,10 @@ function formatMoney(money: Money | undefined): string {
  */
 function formatDate(date: Date | null | undefined): string {
   if (!date) return "";
-  return date.toISOString().split("T")[0];
+  // Order dates are calendar days built at local midnight, so they must be
+  // rendered from local components. toISOString() would shift them back a day
+  // for every timezone east of Greenwich.
+  return dateToIsoString(date);
 }
 
 /**

@@ -215,3 +215,26 @@ describe("money parsing", () => {
     });
   });
 });
+
+describe("parseMoney - trailing currency symbol (es/de/fr/it locales)", () => {
+  it("parses Spanish format with symbol after the amount", () => {
+    const result = parseMoney("11,56 €", "EUR");
+    expect(result.amount).toBe(11.56);
+    expect(result.currency).toBe("EUR");
+  });
+
+  it("parses Spanish thousands with symbol after the amount", () => {
+    const result = parseMoney("1.234,56 €", "EUR");
+    expect(result.amount).toBe(1234.56);
+  });
+
+  it("parses Spanish format with non-breaking space before the symbol", () => {
+    const result = parseMoney("36,99 €", "EUR");
+    expect(result.amount).toBe(36.99);
+  });
+
+  it("parses negative Spanish amounts with trailing symbol", () => {
+    const result = parseMoney("-5,79 €", "EUR");
+    expect(result.amount).toBe(-5.79);
+  });
+});

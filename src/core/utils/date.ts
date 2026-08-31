@@ -206,6 +206,25 @@ const MONTH_NAMES: Record<string, Record<string, number>> = {
 };
 
 /**
+ * Regex alternation of every month name (and abbreviation) known across the
+ * supported locales, longest first so that full names win over abbreviations.
+ * Use this instead of hardcoding English month names: Amazon serves order
+ * pages in the account's display language, and the same account can be served
+ * different languages between requests.
+ */
+export function getMonthNamesPattern(): string {
+  const names = new Set<string>();
+  for (const locale of Object.values(MONTH_NAMES)) {
+    for (const name of Object.keys(locale)) {
+      names.add(name);
+    }
+  }
+  return Array.from(names)
+    .sort((a, b) => b.length - a.length)
+    .join("|");
+}
+
+/**
  * AZAD's date format patterns with locale
  * Exported for use by platform-specific date parsing
  */
