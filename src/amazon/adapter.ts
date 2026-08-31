@@ -148,6 +148,47 @@ export class AmazonPlugin extends BasePlatformPlugin {
   }
 
   /**
+   * Pick the Amazon timeFilter value that covers the requested window.
+   *
+   * Amazon only accepts a fixed vocabulary here - months-3, months-6 and
+   * year-YYYY - so a date range is widened to the narrowest window that
+   * still contains it. Extraction filters precisely afterwards; this only
+   * decides how much history the page has to offer.
+   */
+  private deriveTimeFilterValue(params: OrderListParams): string {
+    if (params.year) {
+      return `year-${params.year}`;
+    }
+    if (params.months) {
+      return `months-${params.months}`;
+    }
+
+    const now = new Date();
+
+    if (params.startDate) {
+      const startYear = params.startDate.getFullYear();
+
+      // A window that does not reach the current year is a whole-year query.
+      const endYear = (params.endDate ?? now).getFullYear();
+      if (endYear < now.getFullYear() || startYear !== endYear) {
+        return `year-${startYear}`;
+      }
+
+      const monthsBack =
+        (now.getFullYear() - startYear) * 12 +
+        (now.getMonth() - params.startDate.getMonth());
+
+      if (monthsBack <= 3) return "months-3";
+      if (monthsBack <= 6) return "months-6";
+      return `year-${startYear}`;
+    }
+
+    // Nothing requested: the current year is the safest default, since it is
+    // the widest window that is always valid.
+    return `year-${now.getFullYear()}`;
+  }
+
+  /**
    * Get order list URL with filters.
    */
   getOrderListUrl(region: string, params: OrderListParams): string {
@@ -158,11 +199,11 @@ export class AmazonPlugin extends BasePlatformPlugin {
     const baseUrl = `https://www.${domain}/your-orders/orders`;
     const queryParams = new URLSearchParams();
 
-    if (params.year) {
-      queryParams.set("timeFilter", `year-${params.year}`);
-    } else if (params.months) {
-      queryParams.set("timeFilter", `months-${params.months}`);
-    }
+    // A timeFilter is mandatory, not optional. On the unfiltered default view
+    // Amazon's "next" link resets the view and serves a page with no orders,
+    // which pagination reads as "no more orders" - silently truncating the
+    // result to the first page. Always pin the view to an explicit window.
+    queryParams.set("timeFilter", this.deriveTimeFilterValue(params));
 
     if (params.startIndex) {
       queryParams.set("startIndex", params.startIndex.toString());
