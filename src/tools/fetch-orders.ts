@@ -580,6 +580,17 @@ export async function fetchOrders(
       console.error(
         `[fetch-orders] Found ${pageHeaders.length} orders on page ${pageNum}`,
       );
+
+      // Pagination said there was another page, yet nothing was extracted from
+      // it. That means the page had not rendered, so orders are being dropped.
+      // Silent truncation is worse than no data: say so instead of returning a
+      // short list that looks complete.
+      if (pageHeaders.length === 0 && pageNum > 1) {
+        result.errors.push(
+          `Page ${pageNum} yielded no orders although a further page was offered. ` +
+            `Results are probably truncated - re-run to confirm the order count.`,
+        );
+      }
       // Cast to the enriched type for result storage
       result.orders.push(...(pageHeaders as EnrichedOrder[]));
       onProgress?.(

@@ -45,27 +45,34 @@ export async function extractExpectedOrderCount(page: Page): Promise<number> {
 }
 
 /**
+ * Every selector an order card may match, most current layout first.
+ *
+ * Single source of truth: extraction searches these, and pagination waits for
+ * them. Keeping two separate lists is what let pagination wait for selectors
+ * that no longer exist, time out, and hand extraction an unrendered page.
+ */
+export const ORDER_CARD_SELECTORS = [
+  '[data-component="orderCard"]', // 2024+ primary selector
+  ".js-order-card",
+  ".order-card",
+  "#orderCard",
+  ".a-box-group.order",
+  ".order-info",
+  ".a-box.order-info",
+  '[class*="order-card"]',
+  ".your-orders-content-container .a-box-group",
+  ".order-row",
+  '[data-testid="order-card"]',
+];
+
+/**
  * Find all order card elements on the page.
  * Uses data-component selectors first for 2024+ layouts.
  */
 async function findOrderCards(
   page: Page,
 ): Promise<import("playwright").Locator[]> {
-  // Try multiple selectors and return first that finds elements
-  // Prioritize data-component selectors for modern layouts
-  const selectors = [
-    '[data-component="orderCard"]', // 2024+ primary selector
-    ".js-order-card",
-    ".order-card",
-    "#orderCard",
-    ".a-box-group.order",
-    ".order-info",
-    ".a-box.order-info",
-    '[class*="order-card"]',
-    ".your-orders-content-container .a-box-group",
-    ".order-row",
-    '[data-testid="order-card"]',
-  ];
+  const selectors = ORDER_CARD_SELECTORS;
 
   debug(`[findOrderCards] Trying ${selectors.length} selectors...`);
 
@@ -941,12 +948,18 @@ export async function goToNextPage(page: Page): Promise<boolean> {
     if ((await nextButton.count()) > 0) {
       await nextButton.click();
       await page.waitForLoadState("domcontentloaded");
-      // Wait for order cards to appear instead of fixed delay
+      // Wait for the same cards extraction will look for, not a stale subset.
       await page
-        .waitForSelector('.order-card, [class*="order-card"], .a-box-group', {
-          timeout: 3000,
+        .waitForSelector(ORDER_CARD_SELECTORS.join(", "), {
+          timeout: 10000,
         })
-        .catch(() => {});
+        .catch(() => {
+          // Extraction runs anyway and reports an empty page, but without this
+          // note a timeout here is indistinguishable from a genuinely last page.
+          debug(
+            "[goToNextPage] Timed out waiting for order cards; the next page may extract as empty",
+          );
+        });
       return true;
     }
     return false;
