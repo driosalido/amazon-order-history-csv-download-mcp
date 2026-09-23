@@ -19,7 +19,8 @@ import { join } from "path";
 import { homedir } from "os";
 
 import { AmazonPlugin } from "./amazon/adapter";
-import { getRegionCodes } from "./amazon/regions";
+import { getRegionByCode, getRegionCodes } from "./amazon/regions";
+import { downloadInvoice } from "./tools/download-invoice";
 import {
   fetchOrders,
   exportOrdersCSV,
@@ -483,6 +484,34 @@ const tools: Tool[] = [
         },
       },
       required: ["region"],
+    },
+  },
+  {
+    name: "download_amazon_invoice",
+    description:
+      "Download the legal invoice PDF(s) of one order (not the printable summary) into dest_dir as <file_prefix>.pdf, <file_prefix>-2.pdf… Never overwrites: fails if a target exists. Returns status ok (with files), sin_factura (seller has not uploaded one: 'Request Invoice'), login (session expired) or error. Personal account only; Amazon Business orders are not visible.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        region: {
+          type: "string",
+          description: "Amazon region code",
+          enum: getRegionCodes(),
+        },
+        order_id: {
+          type: "string",
+          description: "Amazon order ID (XXX-XXXXXXX-XXXXXXX)",
+        },
+        dest_dir: {
+          type: "string",
+          description: "Existing absolute directory to write the PDF(s) into",
+        },
+        file_prefix: {
+          type: "string",
+          description: "File name without extension, no slashes (e.g. Amazon-Agosto-406-2021331-2308305)",
+        },
+      },
+      required: ["region", "order_id", "dest_dir", "file_prefix"],
     },
   },
   {
@@ -1352,6 +1381,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               ),
             },
           ],
+        };
+      }
+
+      case "download_amazon_invoice": {
+        const regionParam = args?.region as string | undefined;
+        const regionError = validateRegion(regionParam, args);
+        if (regionError) return regionError;
+        const domain = getRegionByCode(regionParam!)!.domain;
+        const orderId = args?.order_id as string;
+        const destDir = args?.dest_dir as string;
+        const filePrefix = args?.file_prefix as string;
+        if (!orderId || !destDir || !filePrefix || !destDir.startsWith("/")) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              status: "error",
+              message: "order_id, file_prefix y un dest_dir absoluto son obligatorios",
+            }) }],
+            isError: true,
+          };
+        }
+        const currentPage = await getPage();
+        const result = await downloadInvoice(currentPage, domain, orderId, destDir, filePrefix);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ orderId, ...result }, null, 2) }],
+          ...(result.status === "error" ? { isError: true } : {}),
         };
       }
 
